@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 
 import boto3
@@ -9,9 +10,13 @@ logger.setLevel(logging.INFO)
 textract = boto3.client("textract")
 
 POLL_SECONDS = 2
+POLICY_NUMBER_RE = re.compile(
+    r"policy\s*(?:number|no\.?)\s*[:\-]?\s*([A-Za-z0-9][A-Za-z0-9\-]*)",
+    re.IGNORECASE,
+)
 
 
-def extract_text(bucket, key):
+def extract_text_from_s3(bucket, key):
     """Run async Textract text detection on an S3 object and return its text."""
     job_id = textract.start_document_text_detection(
         DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}}
@@ -38,30 +43,52 @@ def extract_text(bucket, key):
     return "\n".join(lines)
 
 
+def extract_policy_number(claim_text):
+    """Return the policy number from the claim text, e.g. 'Policy Number: POL-123456'."""
+    match = POLICY_NUMBER_RE.search(claim_text)
+    if not match:
+        logger.warning("Policy number not found in claim text")
+        return None
+    logger.info("Policy number found: %s", match.group(1))
+    return match.group(1)
+
+
 def handler(event, context):
     print(f"Ingestion event: {event}")
     logger.info("Ingestion event: %s", event)
 
-    contract_id = event["contract_id"]
+    job_id = event["job_id"]
     bucket = event["s3"]["bucket"]
-    key = event["s3"]["key"]
+    claim_key = event["s3"]["key"]
 
-    # The policy document already exists next to the claim: <cust>/policy.pdf
-    cust = key.split("/")[0]
-    policy_key = event["s3"].get("policy_key", f"{cust}/policy.pdf")
+    # Step 1 - extract text from the claim PDF
+    logger.info("Step 1: Extracting claim text from s3://%s/%s", bucket, claim_key)
+    claim_text = extract_text_from_s3(bucket, claim_key)
 
-    claims_text = extract_text(bucket, key)
-    policy_text = extract_text(bucket, policy_key)
-    logger.info(
-        "Extracted %d chars from claim and %d chars from policy",
-        len(claims_text),
-        len(policy_text),
-    )
+    # Step 2 - derive the policy document key from the policy number in the claim
+    policy_number = extract_policy_number(claim_text)
+    if not policy_number:
+        raise ValueError(f"Could not determine policy number from claim: {claim_key}")
 
-    return {
-        "contract_id": contract_id,
-        "s3": {"bucket": bucket, "key": key},
-        "s3_uri": f"s3://{bucket}/{key}",
-        "extracted_text": claims_text,
+    # The policy document sits in the same folder as the claim: <prefix>/<policy_number>.pdf
+    prefix = claim_key.rsplit("/", 1)[0] if "/" in claim_key else ""
+    policy_key = f"{prefix}/{policy_number}.pdf" if prefix else f"{policy_number}.pdf"
+
+    # Step 3 - extract text from the policy PDF
+    logger.info("Step 2: Extracting policy text from s3://%s/%s", bucket, policy_key)
+    policy_text = extract_text_from_s3(bucket, policy_key)
+
+    output = {
+        "job_id": job_id,
+        "policy_number": policy_number,
+        "claim_text": claim_text,
         "policy_text": policy_text,
     }
+    logger.info(
+        "Ingestion complete. job_id=%s policy_number=%s claim_chars=%d policy_chars=%d",
+        job_id,
+        policy_number,
+        len(claim_text),
+        len(policy_text),
+    )
+    return output

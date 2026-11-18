@@ -23,7 +23,7 @@ def handler(event, context):
 
     prompt = (
         f"POLICY TEXT:\n{event['policy_text']}\n\n"
-        f"CLAIM TEXT:\n{event['extracted_text']}"
+        f"CLAIM TEXT:\n{event['claim_text']}"
     )
 
     response = bedrock.converse(
@@ -39,9 +39,8 @@ def handler(event, context):
     covered = "YES" in first_line.upper()
 
     return {
-        "contract_id": event["contract_id"],
-        "s3": event["s3"],
-        "s3_uri": event["s3_uri"],
+        "job_id": event["job_id"],
+        "policy_number": event["policy_number"],
         "covered": covered,
         "summary": summary.strip() or answer,
     }
