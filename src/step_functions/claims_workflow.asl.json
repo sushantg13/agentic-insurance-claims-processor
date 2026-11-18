@@ -1,0 +1,16 @@
+{
+  "Comment": "Insurance claims processing: ingestion followed by coverage",
+  "StartAt": "Ingestion",
+  "States": {
+    "Ingestion": {
+      "Type": "Task",
+      "Resource": "${ingestion_lambda_arn}",
+      "Next": "Coverage"
+    },
+    "Coverage": {
+      "Type": "Task",
+      "Resource": "${coverage_lambda_arn}",
+      "End": true
+    }
+  }
+}
