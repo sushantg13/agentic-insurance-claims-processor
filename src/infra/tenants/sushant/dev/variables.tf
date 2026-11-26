@@ -1,5 +1,11 @@
-variable "env" {}
-variable "project" {}
-variable "region" {}
-variable "ingestion_lambda_zip_path" {}
-variable "coverage_lambda_zip_path" {}
+variable "project" {
+  type = string
+}
+
+variable "env" {
+  type = string
+}
+
+variable "region" {
+  type = string
+}
