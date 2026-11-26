@@ -1,7 +1,7 @@
-output "bucket_name" {
-  value = aws_s3_bucket.claims.id
+output "inbox_bucket" {
+  value = { id = aws_s3_bucket.inbox.id, arn = aws_s3_bucket.inbox.arn }
 }
 
-output "bucket_arn" {
-  value = aws_s3_bucket.claims.arn
+output "evidence_bucket" {
+  value = { id = aws_s3_bucket.evidence.id, arn = aws_s3_bucket.evidence.arn }
 }

@@ -1,57 +1,127 @@
 # agentic-insurance-claims-processor
 
-Agentic insurance claims processing on AWS. Step Functions orchestrates Lambda agents that extract claim and policy text with Amazon Textract and decide coverage with Amazon Bedrock (Nova Lite). Everything is provisioned with Terraform.
+Agentic claim assessment for Claurich home and motor insurance, on AWS, provisioned with Terraform.
 
-> A learning project built while following a video course. Not production-ready: the IAM policies are deliberately broad (`Resource = "*"`) and will be tightened later.
+This stage covers **claim intake**: a claim dropped into S3 is checked, stored as write-once evidence,
+recorded in DynamoDB and queued for assessment. The assessment worker is a placeholder that marks the
+claim as being assessed; the AI pipeline replaces it later.
 
-## Architecture
+## How a claim flows
 
-1. A claim file is uploaded to S3 (trigger Lambda: not built yet).
-2. Step Functions runs the workflow:
-   - **Ingestion agent** (Lambda): extracts text from the claim and its policy document with Textract.
-   - **Coverage agent** (Lambda): asks Bedrock whether the claim is covered and returns a decision with a summary.
+```
+claim folder ──upload──▶ inbox bucket ──ObjectCreated (.json)──▶ intake Lambda
+                                                                   │ checks shape, policy, attachments
+                                                                   │ duplicate / conflict detection
+                                                                   ├─▶ evidence bucket (Object Lock, versioned)
+                                                                   ├─▶ claims table (status RECEIVED)
+                                                                   └─▶ intake-log table (every decision + reasons)
+claims table stream ──EventBridge Pipe (new RECEIVED items)──▶ assessment queue ──▶ worker Lambda (status ASSESSING)
+```
 
-Planned: payout agent, join step and decision agent.
+| Resource | Purpose |
+|---|---|
+| Inbox bucket | Where claim folders are dropped. Uploads expire after 30 days. |
+| Evidence bucket | The submission and attachments exactly as received, under `claims/<claim_id>/<sha256>/`. Object Lock in governance mode. |
+| `claims` table | One item per lodged claim: status, policy, PDS id, hashes and evidence locations. Its stream feeds the queue. |
+| `policies` table | The policy register, seeded from a JSON file. |
+| `intake-log` table | Every intake decision: accepted, duplicate, conflict or rejected, with reasons. |
+| Assessment queue | Claim ids waiting for the worker. Dead-letter queue after 3 failed attempts. |
+| Failure queues | Intake events that failed after Lambda's retries, and stream records the pipe could not deliver. |
 
-## Project layout
+Intake outcomes:
+
+- **Accepted**: valid, policy belongs to the policyholder, attachments present. Stored and queued.
+- **Duplicate**: the claim id is already lodged with identical content. Nothing changes.
+- **Conflict**: the claim id is already lodged with different content. The original is kept.
+- **Rejected**: invalid JSON or shape, unknown policy, wrong policyholder, or a missing attachment.
+- **Ignored**: any file not named `claim-*.json`, such as an answer key.
+
+## Layout
 
 ```
 src/
-├── agents/
-│   ├── ingestion/            # Lambda: Textract text extraction
-│   └── coverage/             # Lambda: Bedrock coverage decision
-├── step_functions/           # Workflow definition (ASL)
-└── infra/
-    ├── modules/              # iam, s3, lambda, step_functions
-    ├── tenants/<name>/dev/   # Entry point and tfvars per tenant and environment
-    ├── main.tf
+├── lambdas/                  # Python code; Terraform zips each Lambda separately
+│   ├── intake/               # intake Lambda
+│   │   ├── handler.py        # entry point: S3 event → process.py
+│   │   ├── process.py        # the intake checks, evidence copy and table writes
+│   │   └── validation.py     # shape checks on the claim JSON
+│   ├── worker/               # worker Lambda
+│   │   ├── handler.py        # entry point: SQS message → assessment.py
+│   │   └── assessment.py     # moves the claim to ASSESSING (the AI pipeline goes here)
+│   └── shared/               # copied into every Lambda's zip
+│       └── log.py            # one JSON log line per event
+└── infra/                    # Terraform root module: wires the modules together
+    ├── main.tf               # builds the zips and calls the modules
+    ├── variables.tf
+    ├── outputs.tf
     ├── provider.tf
-    └── variables.tf
+    ├── modules/              # one folder per AWS service
+    │   ├── s3/               # inbox and evidence buckets
+    │   ├── dynamodb/         # claims, policies and intake-log tables
+    │   ├── sqs/              # assessment queue and the failure queues
+    │   ├── eventbridge_pipe/ # claims stream → assessment queue, and its IAM role
+    │   └── lambda/
+    │       ├── intake/       # intake Lambda, its S3 trigger and its IAM role
+    │       └── worker/       # worker Lambda, its SQS trigger and its IAM role
+    └── tenants/sushant/dev/  # entry point, tfvars and local state
+scripts/
+├── seed_policies.py          # load a policy register into the policies table
+└── upload_claims.py          # upload claim folders: attachments first, claim JSON last
+tests/                        # pytest suite against moto; makes no AWS calls
 ```
 
-## Getting started
+Each module that runs something owns its IAM role, so its permissions sit next to the resources that use them.
 
-Prerequisites: Terraform, Python 3.12, the AWS CLI configured with credentials (`aws sts get-caller-identity` should work).
+## Prerequisites
 
-1. Build the Lambda zips (they are git-ignored):
+Terraform 1.6 or later, Python 3.12, and the AWS CLI with credentials (`aws sts get-caller-identity` should work).
 
-   ```bash
-   cd src/agents/ingestion && zip ingestion.zip main.py
-   cd ../coverage && zip coverage.zip main.py
-   ```
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+```
 
-2. Plan and apply from the tenant folder:
+## Run the tests
 
-   ```bash
-   cd src/infra/tenants/sushant/dev
-   terraform init
-   terraform plan
-   ```
+```bash
+.venv/bin/python -m pytest
+```
 
-## Status
+## Deploy
 
-- [x] IAM, S3, Lambda and Step Functions modules
-- [x] Ingestion and coverage agent code
-- [ ] Deploy and test end to end
-- [ ] S3 upload trigger Lambda
-- [ ] Payout and decision agents
+```bash
+cd src/infra/tenants/sushant/dev
+terraform init
+terraform plan
+terraform apply
+```
+
+Each Lambda's zip is built during plan from its own folder in `src/lambdas` plus `src/lambdas/shared`; there is no separate build step.
+
+## Use it
+
+From the repository root:
+
+```bash
+TF="terraform -chdir=src/infra/tenants/sushant/dev"
+
+# 1. Load the policy register.
+.venv/bin/python scripts/seed_policies.py --register path/to/policy-register.json --table "$($TF output -raw policies_table)"
+
+# 2. Upload claim folders (a folder of claim folders works too). expected.json is never uploaded.
+.venv/bin/python scripts/upload_claims.py --bucket "$($TF output -raw inbox_bucket)" path/to/claims/
+
+# 3. See what happened.
+aws dynamodb scan --table-name "$($TF output -raw intake_log_table)"
+aws dynamodb scan --table-name "$($TF output -raw claims_table)"
+aws logs tail "/aws/lambda/insurance-claims-workflow-dev-intake" --follow
+```
+
+Add `--dry-run` to the upload script to see the upload order without uploading.
+
+## Tearing down
+
+Evidence objects are locked for `evidence_retention_days` (1 day in dev). The evidence bucket cannot be
+deleted until every locked object's retention has passed, or until an administrator removes the objects
+with governance bypass. Use `COMPLIANCE` mode only in production: nobody, including the root account,
+can delete those objects early.

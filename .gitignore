@@ -42,3 +42,10 @@ venv/
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Terraform-built Lambda zip
+src/infra/.build/
+
+# Local claim folders for upload testing (answer keys removed). Anchored to the
+# repo root so it does not hide the src/app/claims Python package.
+/claims/
