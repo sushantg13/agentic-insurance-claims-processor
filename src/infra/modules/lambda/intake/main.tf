@@ -11,7 +11,7 @@ resource "aws_lambda_function" "this" {
   role             = aws_iam_role.this.arn
   runtime          = "python3.12"
   architectures    = ["arm64"]
-  handler          = "intake_handler.handler"
+  handler          = "intake.handler.handler"
   filename         = var.package.path
   source_code_hash = var.package.hash
   timeout          = var.timeout_seconds

@@ -29,8 +29,8 @@ from typing import Any, Callable
 
 from botocore.exceptions import ClientError
 
-from claims.log import log
-from claims.validation import validate_claim
+from shared.log import log
+from intake.validation import validate_claim
 
 CLAIM_STATUS_RECEIVED = "RECEIVED"
 ITEM_SCHEMA_VERSION = 1

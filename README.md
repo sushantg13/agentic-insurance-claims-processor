@@ -40,22 +40,29 @@ Intake outcomes:
 
 ```
 src/
-├── app/                      # Lambda code, one zip, built by Terraform
-│   ├── claims/               # intake, validation, assessment and logging logic
-│   ├── intake_handler.py     # S3 event → claims.intake
-│   └── worker_handler.py     # SQS message → claims.assessment
+├── lambdas/                  # Python code; Terraform zips each Lambda separately
+│   ├── intake/               # intake Lambda
+│   │   ├── handler.py        # entry point: S3 event → process.py
+│   │   ├── process.py        # the intake checks, evidence copy and table writes
+│   │   └── validation.py     # shape checks on the claim JSON
+│   ├── worker/               # worker Lambda
+│   │   ├── handler.py        # entry point: SQS message → assessment.py
+│   │   └── assessment.py     # moves the claim to ASSESSING (the AI pipeline goes here)
+│   └── shared/               # copied into every Lambda's zip
+│       └── log.py            # one JSON log line per event
 └── infra/                    # Terraform root module: wires the modules together
-    ├── main.tf
+    ├── main.tf               # builds the zips and calls the modules
     ├── variables.tf
     ├── outputs.tf
     ├── provider.tf
-    ├── modules/
-    │   ├── storage/          # inbox and evidence buckets
-    │   ├── database/         # claims, policies and intake-log tables
-    │   ├── queues/           # assessment queue and the failure queues
-    │   ├── intake/           # intake Lambda, its S3 trigger and its IAM role
-    │   ├── claims_pipe/      # claims stream → assessment queue, and its IAM role
-    │   └── worker/           # worker Lambda, its SQS trigger and its IAM role
+    ├── modules/              # one folder per AWS service
+    │   ├── s3/               # inbox and evidence buckets
+    │   ├── dynamodb/         # claims, policies and intake-log tables
+    │   ├── sqs/              # assessment queue and the failure queues
+    │   ├── eventbridge_pipe/ # claims stream → assessment queue, and its IAM role
+    │   └── lambda/
+    │       ├── intake/       # intake Lambda, its S3 trigger and its IAM role
+    │       └── worker/       # worker Lambda, its SQS trigger and its IAM role
     └── tenants/sushant/dev/  # entry point, tfvars and local state
 scripts/
 ├── seed_policies.py          # load a policy register into the policies table
@@ -89,7 +96,7 @@ terraform plan
 terraform apply
 ```
 
-The Lambda zip is built from `src/app` during plan; there is no separate build step.
+Each Lambda's zip is built during plan from its own folder in `src/lambdas` plus `src/lambdas/shared`; there is no separate build step.
 
 ## Use it
 

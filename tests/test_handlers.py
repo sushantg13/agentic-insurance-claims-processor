@@ -4,9 +4,9 @@ from urllib.parse import quote_plus
 import pytest
 from conftest import CLAIMS_TABLE, EVIDENCE, INBOX, INTAKE_LOG_TABLE, POLICIES_TABLE, make_claim, upload_claim
 
-import intake_handler
-import worker_handler
-from claims.assessment import StartOutcome, start_assessment
+from intake import handler as intake_handler
+from worker import handler as worker_handler
+from worker.assessment import StartOutcome, start_assessment
 
 
 @pytest.fixture

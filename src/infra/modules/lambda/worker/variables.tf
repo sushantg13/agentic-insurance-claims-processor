@@ -4,7 +4,7 @@ variable "prefix" {
 }
 
 variable "package" {
-  description = "The Lambda zip built from src/app: its local path and base64 SHA-256."
+  description = "This Lambda's zip: its local path and base64 SHA-256."
   type        = object({ path = string, hash = string })
 }
 

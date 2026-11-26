@@ -1,6 +1,6 @@
 from conftest import make_claim
 
-from claims.validation import is_safe_relative_path, validate_claim
+from intake.validation import is_safe_relative_path, validate_claim
 
 
 def test_sample_claim_is_well_formed():

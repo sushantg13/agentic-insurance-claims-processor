@@ -8,7 +8,7 @@ from urllib.parse import unquote_plus
 
 import boto3
 
-from claims.intake import IntakeDeps, process_object
+from intake.process import IntakeDeps, process_object
 
 _deps: IntakeDeps | None = None
 

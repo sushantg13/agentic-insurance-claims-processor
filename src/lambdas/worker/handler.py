@@ -8,8 +8,8 @@ from typing import Any
 
 import boto3
 
-from claims.assessment import start_assessment
-from claims.log import log
+from worker.assessment import start_assessment
+from shared.log import log
 
 _claims_table = None
 

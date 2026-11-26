@@ -7,22 +7,35 @@ locals {
   account_id = data.aws_caller_identity.current.account_id
   prefix     = "${var.project}-${var.env}"
 
-  # Both Lambdas ship from one zip of src/app; each has its own handler.
-  package = {
-    path = data.archive_file.app.output_path
-    hash = data.archive_file.app.output_base64sha256
+  # Each Lambda ships only its own folder in src/lambdas, plus the shared folder.
+  lambdas_dir = "${path.module}/../lambdas"
+  lambdas     = ["intake", "worker"]
+
+  packages = {
+    for name in local.lambdas : name => {
+      path = data.archive_file.lambda[name].output_path
+      hash = data.archive_file.lambda[name].output_base64sha256
+    }
   }
 }
 
-data "archive_file" "app" {
+data "archive_file" "lambda" {
+  for_each = toset(local.lambdas)
+
   type        = "zip"
-  source_dir  = "${path.module}/../app"
-  output_path = "${path.module}/.build/app.zip"
-  excludes    = ["__pycache__", "claims/__pycache__"]
+  output_path = "${path.module}/.build/${each.key}.zip"
+
+  dynamic "source" {
+    for_each = fileset(local.lambdas_dir, "{${each.key},shared}/*.py")
+    content {
+      content  = file("${local.lambdas_dir}/${source.value}")
+      filename = source.value
+    }
+  }
 }
 
-module "storage" {
-  source = "./modules/storage"
+module "s3" {
+  source = "./modules/s3"
 
   prefix                  = local.prefix
   account_id              = local.account_id
@@ -31,55 +44,87 @@ module "storage" {
   evidence_retention_days = var.evidence_retention_days
 }
 
-module "database" {
-  source = "./modules/database"
+module "dynamodb" {
+  source = "./modules/dynamodb"
 
   prefix              = local.prefix
   deletion_protection = var.deletion_protection
 }
 
-module "queues" {
-  source = "./modules/queues"
+module "sqs" {
+  source = "./modules/sqs"
 
   prefix                                = local.prefix
   assessment_visibility_timeout_seconds = var.worker_timeout_seconds * 6
   assessment_max_receive_count          = var.assessment_max_receive_count
 }
 
-module "intake" {
-  source = "./modules/intake"
+module "intake_lambda" {
+  source = "./modules/lambda/intake"
 
   prefix             = local.prefix
   account_id         = local.account_id
-  package            = local.package
+  package            = local.packages["intake"]
   timeout_seconds    = var.intake_timeout_seconds
   log_retention_days = var.log_retention_days
-  inbox_bucket       = module.storage.inbox_bucket
-  evidence_bucket    = module.storage.evidence_bucket
-  claims_table       = module.database.claims_table
-  policies_table     = module.database.policies_table
-  intake_log_table   = module.database.intake_log_table
-  failure_queue_arn  = module.queues.intake_failures.arn
+  inbox_bucket       = module.s3.inbox_bucket
+  evidence_bucket    = module.s3.evidence_bucket
+  claims_table       = module.dynamodb.claims_table
+  policies_table     = module.dynamodb.policies_table
+  intake_log_table   = module.dynamodb.intake_log_table
+  failure_queue_arn  = module.sqs.intake_failures.arn
 }
 
-module "claims_pipe" {
-  source = "./modules/claims_pipe"
+module "eventbridge_pipe" {
+  source = "./modules/eventbridge_pipe"
 
   prefix                = local.prefix
   account_id            = local.account_id
-  claims_stream_arn     = module.database.claims_table.stream_arn
-  target_queue_arn      = module.queues.assessment.arn
-  dead_letter_queue_arn = module.queues.pipe_dlq.arn
+  claims_stream_arn     = module.dynamodb.claims_table.stream_arn
+  target_queue_arn      = module.sqs.assessment.arn
+  dead_letter_queue_arn = module.sqs.pipe_dlq.arn
 }
 
-module "worker" {
-  source = "./modules/worker"
+module "worker_lambda" {
+  source = "./modules/lambda/worker"
 
   prefix               = local.prefix
-  package              = local.package
+  package              = local.packages["worker"]
   timeout_seconds      = var.worker_timeout_seconds
   log_retention_days   = var.log_retention_days
   max_concurrency      = var.worker_max_concurrency
-  claims_table         = module.database.claims_table
-  assessment_queue_arn = module.queues.assessment.arn
+  claims_table         = module.dynamodb.claims_table
+  assessment_queue_arn = module.sqs.assessment.arn
+}
+
+# The modules were renamed after first apply. These blocks tell Terraform the
+# resources moved address, so it renames them in state instead of recreating them.
+moved {
+  from = module.storage
+  to   = module.s3
+}
+
+moved {
+  from = module.database
+  to   = module.dynamodb
+}
+
+moved {
+  from = module.queues
+  to   = module.sqs
+}
+
+moved {
+  from = module.claims_pipe
+  to   = module.eventbridge_pipe
+}
+
+moved {
+  from = module.intake
+  to   = module.intake_lambda
+}
+
+moved {
+  from = module.worker
+  to   = module.worker_lambda
 }

@@ -2,7 +2,7 @@ import json
 
 from conftest import ATTACHMENTS, EVIDENCE, INBOX, make_claim, log_entry, run_intake, upload_claim
 
-from claims.intake import Outcome
+from intake.process import Outcome
 
 
 def test_valid_claim_is_lodged_with_evidence(aws):

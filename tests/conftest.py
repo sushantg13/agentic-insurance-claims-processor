@@ -1,6 +1,6 @@
 import sys
 
-# Keep src/app free of __pycache__ so the Terraform-built Lambda zip stays stable.
+# Keep src/lambdas free of __pycache__ so the Lambda zips stay byte-identical between runs.
 sys.dont_write_bytecode = True
 
 import copy  # noqa: E402
@@ -12,7 +12,7 @@ import boto3  # noqa: E402
 import pytest  # noqa: E402
 from moto import mock_aws  # noqa: E402
 
-from claims.intake import IntakeDeps, process_object  # noqa: E402
+from intake.process import IntakeDeps, process_object  # noqa: E402
 
 REGION = "ap-southeast-2"
 INBOX = "test-inbox"

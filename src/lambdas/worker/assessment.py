@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from botocore.exceptions import ClientError
 
-from claims.log import log
+from shared.log import log
 
 STATUS_RECEIVED = "RECEIVED"
 STATUS_ASSESSING = "ASSESSING"
