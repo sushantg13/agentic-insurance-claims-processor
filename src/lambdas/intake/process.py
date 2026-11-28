@@ -11,7 +11,7 @@ For each claim JSON dropped in the inbox:
 5. Copy the claim and its attachments to the write-once evidence bucket, under
    a key that includes the submission's hash, so a retry rewrites identical bytes.
 6. Write the claim item only if its id does not exist yet. The DynamoDB stream
-   then queues it for assessment.
+   then queues it for the precheck.
 
 Every decision is recorded in the intake log with its reasons.
 """
@@ -30,7 +30,7 @@ from typing import Any, Callable
 from botocore.exceptions import ClientError
 
 from shared.log import log
-from intake.validation import validate_claim
+from shared.validation import validate_claim
 
 CLAIM_STATUS_RECEIVED = "RECEIVED"
 ITEM_SCHEMA_VERSION = 1

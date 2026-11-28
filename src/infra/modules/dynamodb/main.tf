@@ -1,4 +1,5 @@
-# One item per lodged claim. The stream feeds new claims to the assessment queue.
+# One item per lodged claim. Its stream feeds status changes to the pipes,
+# which move each claim to its next queue.
 resource "aws_dynamodb_table" "claims" {
   name                        = "${var.prefix}-claims"
   billing_mode                = "PAY_PER_REQUEST"
