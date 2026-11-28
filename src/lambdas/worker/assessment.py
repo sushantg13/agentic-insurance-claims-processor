@@ -1,4 +1,4 @@
-"""Start a claim's assessment. For now this only moves the claim to ASSESSING.
+"""Start a claim's assessment. For now this only moves a PRECHECKED claim to ASSESSING.
 
 The AI pipeline will replace the body of start_assessment. The queue, retries
 and dead-letter handling around it stay the same.
@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 
 from shared.log import log
 
-STATUS_RECEIVED = "RECEIVED"
+STATUS_PRECHECKED = "PRECHECKED"
 STATUS_ASSESSING = "ASSESSING"
 
 
@@ -34,11 +34,11 @@ def start_assessment(
         claims.update_item(
             Key={"claim_id": claim_id},
             UpdateExpression="SET #status = :assessing, assessment_started_at = :ts, updated_at = :ts",
-            ConditionExpression="attribute_exists(claim_id) AND #status = :received",
+            ConditionExpression="attribute_exists(claim_id) AND #status = :prechecked",
             ExpressionAttributeNames={"#status": "status"},
             ExpressionAttributeValues={
                 ":assessing": STATUS_ASSESSING,
-                ":received": STATUS_RECEIVED,
+                ":prechecked": STATUS_PRECHECKED,
                 ":ts": timestamp,
             },
         )
@@ -49,7 +49,7 @@ def start_assessment(
         if item is None:
             log("assessment.claim_not_found", claim_id=claim_id)
             return StartOutcome.NOT_FOUND
-        # A redelivered message for a claim that is already past RECEIVED: nothing to redo.
+        # A redelivered message for a claim that is already past PRECHECKED: nothing to redo.
         log("assessment.already_started", claim_id=claim_id, status=item.get("status"))
         return StartOutcome.ALREADY_STARTED
 

@@ -9,7 +9,7 @@ locals {
 
   # Each Lambda ships only its own folder in src/lambdas, plus the shared folder.
   lambdas_dir = "${path.module}/../lambdas"
-  lambdas     = ["intake", "worker"]
+  lambdas     = ["intake", "precheck", "worker"]
 
   packages = {
     for name in local.lambdas : name => {
@@ -55,8 +55,9 @@ module "sqs" {
   source = "./modules/sqs"
 
   prefix                                = local.prefix
+  precheck_visibility_timeout_seconds   = var.precheck_timeout_seconds * 6
   assessment_visibility_timeout_seconds = var.worker_timeout_seconds * 6
-  assessment_max_receive_count          = var.assessment_max_receive_count
+  max_receive_count                     = var.max_receive_count
 }
 
 module "intake_lambda" {
@@ -75,11 +76,55 @@ module "intake_lambda" {
   failure_queue_arn  = module.sqs.intake_failures.arn
 }
 
-module "eventbridge_pipe" {
+# Claim status drives the flow: each pipe watches the claims stream for one
+# status and queues the claim for the next Lambda.
+#   RECEIVED (new item)   -> precheck queue   -> precheck Lambda
+#   PRECHECKED (update)   -> assessment queue -> worker Lambda
+module "precheck_pipe" {
   source = "./modules/eventbridge_pipe"
 
-  prefix                = local.prefix
-  account_id            = local.account_id
+  prefix      = local.prefix
+  account_id  = local.account_id
+  name        = "claims-to-precheck"
+  description = "Newly lodged claims to the precheck queue"
+  filter_pattern = {
+    eventName = ["INSERT"]
+    dynamodb  = { NewImage = { status = { S = ["RECEIVED"] } } }
+  }
+  claims_stream_arn     = module.dynamodb.claims_table.stream_arn
+  target_queue_arn      = module.sqs.precheck.arn
+  dead_letter_queue_arn = module.sqs.pipe_dlq.arn
+}
+
+module "precheck_lambda" {
+  source = "./modules/lambda/precheck"
+
+  prefix             = local.prefix
+  package            = local.packages["precheck"]
+  timeout_seconds    = var.precheck_timeout_seconds
+  log_retention_days = var.log_retention_days
+  max_concurrency    = var.precheck_max_concurrency
+  evidence_bucket    = module.s3.evidence_bucket
+  claims_table       = module.dynamodb.claims_table
+  policies_table     = module.dynamodb.policies_table
+  precheck_queue_arn = module.sqs.precheck.arn
+}
+
+# Only the update that sets PRECHECKED matches. The precheck writes the status
+# and its record in one update, and nothing else changes a PRECHECKED claim
+# before the worker moves it on, so each claim is queued once. A duplicate
+# would be harmless: the worker only starts a claim that is still PRECHECKED.
+module "assessment_pipe" {
+  source = "./modules/eventbridge_pipe"
+
+  prefix      = local.prefix
+  account_id  = local.account_id
+  name        = "claims-to-assessment"
+  description = "Prechecked claims to the assessment queue"
+  filter_pattern = {
+    eventName = ["MODIFY"]
+    dynamodb  = { NewImage = { status = { S = ["PRECHECKED"] } } }
+  }
   claims_stream_arn     = module.dynamodb.claims_table.stream_arn
   target_queue_arn      = module.sqs.assessment.arn
   dead_letter_queue_arn = module.sqs.pipe_dlq.arn
@@ -117,6 +162,11 @@ moved {
 moved {
   from = module.claims_pipe
   to   = module.eventbridge_pipe
+}
+
+moved {
+  from = module.eventbridge_pipe
+  to   = module.assessment_pipe
 }
 
 moved {

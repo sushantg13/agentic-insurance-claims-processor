@@ -1,8 +1,9 @@
-"""Shape checks for a claim submission, before anything is stored.
+"""Shape checks for a claim submission.
 
-These check that the payload is well formed and safe to store. They do not
-judge the claim: dates against the policy term, waiting periods and routing
-rules belong to the assessment pipeline.
+Intake runs them before anything is stored; precheck runs them again on the
+stored evidence copy rather than trusting intake. They check that the payload
+is well formed and safe to store. They do not judge the claim: dates against
+the policy term and routing rules belong to the precheck.
 """
 
 from __future__ import annotations

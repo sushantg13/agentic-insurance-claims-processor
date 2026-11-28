@@ -48,6 +48,18 @@ variable "intake_timeout_seconds" {
   default     = 30
 }
 
+variable "precheck_timeout_seconds" {
+  description = "Timeout for the precheck Lambda. The precheck queue's visibility timeout is six times this."
+  type        = number
+  default     = 30
+}
+
+variable "precheck_max_concurrency" {
+  description = "Most precheck Lambdas that SQS may run at once. It makes no model calls, so this can be higher than the worker's. Minimum 2."
+  type        = number
+  default     = 5
+}
+
 variable "worker_timeout_seconds" {
   description = "Timeout for the assessment worker Lambda. The queue's visibility timeout is six times this."
   type        = number
@@ -60,8 +72,8 @@ variable "worker_max_concurrency" {
   default     = 2
 }
 
-variable "assessment_max_receive_count" {
-  description = "Delivery attempts before a claim message moves to the assessment dead-letter queue."
+variable "max_receive_count" {
+  description = "Delivery attempts before a claim message moves to its queue's dead-letter queue."
   type        = number
   default     = 3
 }

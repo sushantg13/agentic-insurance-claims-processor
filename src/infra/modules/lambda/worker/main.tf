@@ -1,4 +1,4 @@
-# Worker: takes claim ids off the assessment queue. For now it only marks the
+# Worker: takes prechecked claim ids off the assessment queue. For now it only marks the
 # claim as being assessed; the AI pipeline replaces its handler later.
 
 resource "aws_cloudwatch_log_group" "this" {

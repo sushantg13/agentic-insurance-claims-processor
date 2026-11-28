@@ -38,19 +38,19 @@ def test_intake_handler_decodes_url_encoded_keys(lambda_env):
     assert item["source"] == f"s3://{INBOX}/home burglary/claim-CLM-2026-000101.json"
 
 
-def put_received_claim(aws, claim_id="CLM-2026-000101"):
-    aws.claims.put_item(Item={"claim_id": claim_id, "status": "RECEIVED"})
+def put_prechecked_claim(aws, claim_id="CLM-2026-000101"):
+    aws.claims.put_item(Item={"claim_id": claim_id, "status": "PRECHECKED"})
 
 
-def test_start_assessment_moves_a_received_claim_to_assessing(aws):
-    put_received_claim(aws)
+def test_start_assessment_moves_a_prechecked_claim_to_assessing(aws):
+    put_prechecked_claim(aws)
 
     assert start_assessment("CLM-2026-000101", aws.claims) is StartOutcome.STARTED
     assert aws.claims.get_item(Key={"claim_id": "CLM-2026-000101"})["Item"]["status"] == "ASSESSING"
 
 
 def test_redelivered_message_does_not_restart_assessment(aws):
-    put_received_claim(aws)
+    put_prechecked_claim(aws)
     start_assessment("CLM-2026-000101", aws.claims)
     started = aws.claims.get_item(Key={"claim_id": "CLM-2026-000101"})["Item"]
 
@@ -64,7 +64,7 @@ def test_message_for_unknown_claim_is_dropped_without_creating_it(aws):
 
 
 def test_worker_reports_only_failed_messages(lambda_env):
-    put_received_claim(lambda_env)
+    put_prechecked_claim(lambda_env)
     event = {
         "Records": [
             {"messageId": "good", "body": json.dumps({"claim_id": "CLM-2026-000101"})},
